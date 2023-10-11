@@ -1,9 +1,9 @@
-#pragma once
+export module Monad;
 
-#include "Functor.h"
-#include <type_traits>
+import Functor;
+import std;
 
-namespace Monad
+export namespace Monad
 {
     // class (Functor m) => Monad m where
     //  pure :: a - > m a
@@ -57,7 +57,7 @@ namespace Monad
 
 // (>>=) :: (Monad m) => m a -> (a -> m b) -> m b
 // m a >>= f = f a
-template <template <typename> typename M, typename A, std::invocable<A> F>
+export template <template <typename> typename M, typename A, std::invocable<A> F>
 requires Monad::IsMonad<M>
 auto operator>>=(M<A> const& m, F&& f)
 {
@@ -66,12 +66,12 @@ auto operator>>=(M<A> const& m, F&& f)
 
 // (>>) :: (Monad m) => m a -> m () -> m ()
 // x >> y = x >>= \_ -> y
-template <template <typename> typename M, typename A, typename B>
+export template <template <typename> typename M, typename A, typename B>
 requires Monad::IsMonad<M>
 M<B> operator>>(M<A> const& m, M<B> const& v)
 {
     return Monad::Bind(m, [=](auto&&) { return v; });
 }
 
-using Monad::Pure;
-using Monad::Bind;
+export using Monad::Pure;
+export using Monad::Bind;

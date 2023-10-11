@@ -1,10 +1,8 @@
-#pragma once
+export module Functor;
 
-#include <type_traits>
-#include <concepts>
-#include <iostream>
+import std;
 
-namespace Functor
+export namespace Functor
 {
     // class Functor f where
     //  map :: (a -> b) -> f a -> f b
@@ -68,4 +66,4 @@ namespace Functor
     static_assert(IsFunctor<Test::NullFunctor>, "NullFunctor must be a Functor.");
 }
 
-using Functor::Fmap;
+export using Functor::Fmap;

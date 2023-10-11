@@ -1,11 +1,10 @@
-#pragma once
+export module Free;
 
-#include "Functor.h"
-#include "Monad.h"
+import Functor;
+import Monad;
+import std;
 
-#include <variant>
-
-namespace Free
+export namespace Free
 {
 	// data Free f a = Return a | Bind (f (Free f a))
 	// instance (Functor f) => Monad (Free f) where

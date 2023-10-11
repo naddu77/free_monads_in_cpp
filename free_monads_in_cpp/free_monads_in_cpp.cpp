@@ -1,10 +1,10 @@
-#include "Free.h"
-#include "List.h"
-#include <iostream>
-#include <functional>
-#include <string>
 #include <cassert>
-#include <print>
+
+import List;
+import Free;
+import std;
+
+using namespace std::literals;
 
 using Unit = std::tuple<>;
 
@@ -12,6 +12,25 @@ std::ostream& operator<<(std::ostream& os, Unit)
 {
     return os << "Unit{}";
 }
+
+template <typename A>
+struct std::formatter<List<A>>
+	: std::formatter<std::string>
+{
+	template<class FormatContext>
+	auto format(List<A> l, FormatContext& fc) const
+	{
+		auto out{ fc.out() };
+
+		*out++ = '[';
+
+		std::ranges::copy(l | std::views::transform([](auto const& e) { return std::format("{}", e); }) | std::views::join_with(","s) | std::ranges::to<std::string>(), out);
+
+		*out++ = ']';
+
+		return out;
+	}
+};
 
 // id :: a -> a
 // id x = x

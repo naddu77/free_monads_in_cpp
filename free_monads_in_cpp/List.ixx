@@ -1,51 +1,25 @@
-#pragma once
+export module List;
 
-#include "Functor.h"
-#include "Monad.h"
-
-#include <algorithm>
-#include <iterator>
-#include <ostream>
-#include <vector>
-#include <ranges>
-#include <string_view>
-#include <sstream>
+import Functor;
+import Monad;
+import std;
 
 using namespace std::literals;
 
-template <typename A>
+export template <typename A>
 struct List
 	: std::vector<A>
 {
 	using std::vector<A>::vector;
 };
 
-template <typename A>
+export template <typename A>
 std::ostream& operator<<(std::ostream& os, List<A> const& l)
 {
 	return os << '[' << (l | std::views::transform([](auto const& e) { return std::format("{}", e); }) | std::views::join_with(","s) | std::ranges::to<std::string>()) << ']';
 }
 
-template <typename A>
-struct std::formatter<List<A>>
-	: std::formatter<std::string>
-{
-	template<class FormatContext>
-	auto format(List<A> l, FormatContext& fc) const
-	{
-		auto out{ fc.out() };
-
-		*out++ = '[';
-
-		std::ranges::copy(l | std::views::transform([](auto const& e) { return std::format("{}", e); }) | std::views::join_with(","s) | std::ranges::to<std::string>(), out);
-
-		*out++ = ']';
-
-		return out;
-	}
-};
-
-namespace Functor
+export namespace Functor
 {
 	template <>
 	struct Functor<List>
@@ -61,7 +35,7 @@ namespace Functor
 	static_assert(IsFunctor<List>, "List should be a Functor.");
 }
 
-namespace Monad
+export namespace Monad
 {
 	template <>
 	struct Monad<List>
