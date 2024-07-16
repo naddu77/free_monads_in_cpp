@@ -1,46 +1,22 @@
 export module Functor;
 
+import Util;
 import std;
 
-export namespace Functor
+namespace Functor
 {
     // class Functor f where
-    //  map :: (a -> b) -> f a -> f b
-    template <template <typename> typename F, typename Enable = void>
-    struct Functor;
+    // map :: (a -> b) -> f a -> f b
+    export template <template <typename...> typename F>
+    concept Functorable = requires (F<Util::Dummy1> t) {
+        { t.Fmap([](Util::Dummy1 const&) -> Util::Dummy2 { return {}; }) };
+    };
 
-    namespace Internal
+    export template <template <typename> typename F, typename A, std::invocable<A> Func>
+    requires Functorable<F>
+    F<std::invoke_result_t<Func, A>> Fmap(Func&& func, F<A> const& fa)
     {
-        template <template <typename> typename F>
-        struct IsFunctorType
-            : std::false_type
-        {
-            // Note: Nothing
-        };
-
-        struct Dummy1 {};
-        struct Dummy2 {};
-
-        template <template <typename> typename F>
-            requires requires
-        {
-            { Functor<F>::Fmap(std::declval<Dummy2(Dummy1)>(), std::declval<F<Dummy1>>()) } -> std::same_as<F<Dummy2>>;
-        }
-        struct IsFunctorType<F>
-            : std::true_type
-        {
-            // Note: Nothing
-        };
-    }
-
-    template <template <typename> typename F>
-    constexpr bool IsFunctor = Internal::IsFunctorType<F>::value;
-
-    template <template <typename> typename F, typename A, std::invocable<A> Fun>
-    requires IsFunctor<F>
-    F<std::invoke_result_t<Fun, A>> Fmap(Fun&& fun, F<A> const& fa)
-    {
-        return Functor<F>::Fmap(std::forward<Fun>(fun), fa);
+        return fa.Fmap(std::forward<Func>(func));
     }
 
     namespace Test
@@ -48,22 +24,13 @@ export namespace Functor
         template <typename A>
         struct NullFunctor
         {
-            // Note: Nothing
+            template <std::invocable<A> Func>
+            NullFunctor<std::invoke_result_t<Func, A>> Fmap(Func&&)
+            {
+                return {};
+            }
         };
 
+        static_assert(Functorable<Test::NullFunctor>, "NullFunctor must be Functor.");
     }
-
-    template <>
-    struct Functor<Test::NullFunctor>
-    {
-        template <typename A, std::invocable<A> Fun>
-        static Test::NullFunctor<std::invoke_result_t<Fun, A>> Fmap(Fun, Test::NullFunctor<A>)
-        {
-            return {};
-        }
-    };
-
-    static_assert(IsFunctor<Test::NullFunctor>, "NullFunctor must be a Functor.");
 }
-
-export using Functor::Fmap;

@@ -1,7 +1,10 @@
+#include "CustomFormatter.h"
 #include <cassert>
 
 import List;
 import Free;
+import Functor;
+import Monad;
 import std;
 
 using namespace std::literals;
@@ -12,25 +15,6 @@ std::ostream& operator<<(std::ostream& os, Unit)
 {
     return os << "Unit{}";
 }
-
-template <typename A>
-struct std::formatter<List<A>>
-	: std::formatter<std::string>
-{
-	template<class FormatContext>
-	auto format(List<A> l, FormatContext& fc) const
-	{
-		auto out{ fc.out() };
-
-		*out++ = '[';
-
-		std::ranges::copy(l | std::views::transform([](auto const& e) { return std::format("{}", e); }) | std::views::join_with(","s) | std::ranges::to<std::string>(), out);
-
-		*out++ = ']';
-
-		return out;
-	}
-};
 
 // id :: a -> a
 // id x = x
@@ -69,6 +53,19 @@ template <typename Next>
 struct Prog
 {
     std::variant<Read<Next>, Write<Next>> v;
+
+    template <typename Fun>
+    Prog<std::invoke_result_t<Fun, Next>> Fmap(Fun&& fun) const
+    {
+        return std::visit(Util::Overloaded{
+            [fun](Read<Next> const& read) {
+                 return MakeRead(Compose(fun, read.next));
+            },
+            [fun](Write<Next> const& write) {
+                return MakeWrite(write.x, Compose(fun, write.next));
+            }
+        }, v);
+    }
 };
 
 template <typename F>
@@ -83,60 +80,87 @@ Prog<std::invoke_result_t<F, Unit>> MakeWrite(int x, F next)
     return { Write<std::invoke_result_t<F, Unit>>{ x, next } };
 }
 
-namespace Functor
+template <typename Next, typename CharT>
+struct std::formatter<Prog<Next>, CharT>
 {
-    template <>
-    struct Functor<Prog>
-    {
-        template <typename Fun, typename Next>
-        static Prog<std::invoke_result_t<Fun, Next>> Fmap(Fun&& fun, Prog<Next> const& prog)
-        {
-            using Res = std::invoke_result_t<Fun, Next>;
+public:
+	std::formatter<Next> value_formatter;
 
-            struct Visitor
-            {
-                Fun& fun;
+	template <typename ParseContext>
+	constexpr typename ParseContext::iterator parse(ParseContext& ctx)
+	{
+		return value_formatter.parse(ctx);
+	}
 
-                // Fmap f (Read n) = Read (f . n)
-                Prog<Res> operator()(Read<Next> const& read) const
-                {
-                    return MakeRead(Compose(fun, read.next));
-                }
+	template <typename FormatContext>
+	constexpr typename FormatContext::iterator format(Prog<Next> const& prog, FormatContext& ctx) const
+	{
+		auto out{ ctx.out() };
 
-                // Famp f (Write x n) = Write x (f . n)
-                Prog<Res> operator()(Write<Next> const& write) const
-                {
-                    return MakeWrite(write.x, Compose(fun, write.next));
-                }
-            };
+		out = std::format_to(out, STATICALLY_WIDEN("{}"), std::visit(Util::Overloaded{
+            [](Read<Next> const& read) {
+                return "Read{}"s;
+            },
+            [](Write<Next> const& write) {
+                return std::format(STATICALLY_WIDEN("Write{{{}}}"), write.x);
+            }
+        }, prog.v));
 
-            return std::visit(Visitor{ fun }, prog.v);
-        }
-    };
+		return out;
+	}
+};
+
+template <typename Next, typename CharT = char>
+std::basic_ostream<CharT>& operator<<(std::basic_ostream<CharT>& os, Prog<Next> const& prog)
+{
+	return os << std::format(STATICALLY_WIDEN("{}"), prog);
 }
 
 template <typename A>
 struct Program
     : Free::Free<Prog, A>
 {
-    using WrappedFree = Free::Free<Prog, A>;
 
-    Program(WrappedFree const& free)
-        : Free::Free<Prog, A>(free)
-    {
-
-    }
 };
+
+template <typename A, typename CharT>
+struct std::formatter<Program<A>, CharT>
+{
+public:
+	std::formatter<A> value_formatter;
+
+	template <typename ParseContext>
+	constexpr typename ParseContext::iterator parse(ParseContext& ctx)
+	{
+		return value_formatter.parse(ctx);
+	}
+
+	template <typename FormatContext>
+	constexpr typename FormatContext::iterator format(Program<A> const& program, FormatContext& ctx) const
+	{
+		auto out{ ctx.out() };
+
+		out = std::format_to(out, STATICALLY_WIDEN("{}"), static_cast<Free::Free<Prog, A>>(program));
+
+		return out;
+	}
+};
+
+template <template <typename...> typename F, typename A, typename CharT = char>
+std::basic_ostream<CharT>& operator<<(std::basic_ostream<CharT>& os, Program<A> const& program)
+{
+	return os << std::format(STATICALLY_WIDEN("{}"), program);
+}
 
 // readF :: Free (Prog Int)
 // readF = liftFree (Read Id)
-Program<int> ReadF = Free::LiftFree(MakeRead(&Id<int>));
+Program<int> ReadF{ Free::LiftFree(MakeRead(&Id<int>)) };
 
 // writeF :: Int -> Free (Prog ())
 // writeF x = liftFree (Write x id)
 Program<Unit> WriteF(int x)
 {
-    return Free::LiftFree(MakeWrite(x, &Id<Unit>));
+    return { Free::LiftFree(MakeWrite(x, &Id<Unit>)) };
 }
 
 // Interpret :: Prog a -> List a
@@ -147,28 +171,18 @@ struct Interpreter
     List<int> l;    // the values written so far
 
     template <typename A>
-    List<A> operator()(Prog<A> prog)
+    List<A> operator()(Prog<A> const& prog)
     {
-        struct Visitor
-        {
-            List<int>& l;
-
-            List<A> operator()(Read<A> const& r)
-            {
+        return std::visit(Util::Overloaded{
+            [this](Read<A> const& r) ->List<A> {
                 return Functor::Fmap(r.next, l);
-            }
-
-            List<A> operator()(Write<A> const& w)
-            {
+            },
+            [this](Write<A> const& w) -> List<A> {
                 l.push_back(w.x);
 
                 return { w.next(Unit{}) };
             }
-        };
-       
-        Visitor v{ l };
-
-        return std::visit(v, prog.v);
+        }, prog.v);
     }
 };
 
@@ -182,45 +196,72 @@ List<A> Run(Program<A> program)
     return Free::FoldFree<List>(i, program);
 }
 
+static_assert(Functor::Functorable<Program>);
+static_assert(Functor::Functorable<List>);
+static_assert(not Functor::Functorable<std::vector>);
+static_assert(Monad::Monadable<Program>);
+static_assert(Monad::Monadable<List>);
+static_assert(not Monad::Monadable<std::vector>);
+
+template <typename A>
+struct NullFunctor
+{
+    template <std::invocable<A> Func>
+    NullFunctor<std::invoke_result_t<Func, A>> Fmap(Func&&) const
+    {
+        return {};
+    }
+};
+
+template <typename A>
+struct Test
+    : Free::Free<NullFunctor, A>
+{
+
+};
+
+static_assert(Functor::Functorable<NullFunctor>);
+static_assert(Monad::Monadable<Test>);
+
 int main()
 {
     List<int> const l{ 1, 2, 3 };
 
     // fmap
     {
-        auto l0{ Fmap([](int x) { return x + 1; }, l) };
+        auto l0{ Functor::Fmap([](int x) { return x + 1; }, l) };
 
         assert((l0 == List<int>{ 2, 3, 4}));
-        assert((Fmap([](int x) { return -x; }, l) == List<int>{ -1, -2, -3 }));
+        assert((Functor::Fmap([](int x) { return -x; }, l) == List<int>{ -1, -2, -3 }));
     }
 
     // pure
     {
-        assert((Pure<List>("Hi"s) == List<std::string>{ "Hi" }));
+        assert((Monad::Pure<List>("Hi"s) == List<std::string>{ "Hi" }));
     }
 
     // bind
     {
         assert((
-            Bind(l, [](int x) {
-                return Bind(Pure<List>(x * x), [x](int y) { return List<int>{ x, y }; });
+            Monad::MBind(l, [](int x) {
+                return Monad::MBind(Monad::Pure<List>(x * x), [x](int y) { return List<int>{ x, y }; });
             }) == List<int>{ 1, 1, 2, 4, 3, 9 }
         ));
 
         assert((
-            Bind(l, [](int x) {
-                return Bind(Pure<List>(x * x), [x](int y) { return List<int>{ x, y }; });
+            Monad::MBind(l, [](int x) {
+                return Monad::MBind(Monad::Pure<List>(x * x), [x](int y) { return List<int>{ x, y }; });
             }) == List<int>{ 1, 1, 2, 4, 3, 9 }
         ));
 
         assert((
             (l >>= [](int x) {
-                return Pure<List>(x * x) >>= [x](int y) { return List<int>{ x, y }; };
+                return Monad::Pure<List>(x * x) >>= [x](int y) { return List<int>{ x, y }; };
             }) == List<int>{ 1, 1, 2, 4, 3, 9 }
         ));
 
-        auto l1{ Bind(l, [](int x) {
-            return Bind(Pure<List>(x * x), [x](int y) {
+        auto l1{ Monad::MBind(l, [](int x) {
+            return Monad::MBind(Monad::Pure<List>(x * x), [x](int y) {
                 return List<int>{ x, y };
             });
         }) };
@@ -228,24 +269,28 @@ int main()
         assert((l1 == List<int>{ 1, 1, 2, 4, 3, 9 }));
         
         auto l2{ l >>= [](int x) {
-            return Pure<List>(x * 2) >>= [&](int y) { return List<int>{ x, y }; };
+            return Monad::Pure<List>(x * 2) >>= [&](int y) { return List<int>{ x, y }; };
         } };
 
         assert((l2 == List<int>{ 1, 2, 2, 4, 3, 6 }));
 
         std::println("{}", l2);
-    }
+    }    
 
     // Free monad for prog
     {
-        auto pure{ [](auto&& x) { return Pure<Program>(x); } };
+        auto pure{ [](auto&& x) { return Monad::Pure<Program>(x); } };        
 
         // do
         //  readF
         {
             auto free{ ReadF };
 
+            std::println("{}", free);           
+
             assert((Run(free) == List<int>{}));
+
+            std::println("{}", Run(free));
         }
 
         // do
@@ -257,7 +302,11 @@ int main()
                 pure(std::to_string(x)); 
             } };
 
+            std::println("{}", free);
+
             assert((Run(free) == List<std::string>{}));
+
+            std::println("{}", Run(free));
         }
 
         // do
@@ -275,7 +324,11 @@ int main()
                 pure(x + y);
             }; } };
 
+            std::println("{}", free);
+
             assert((Run(free) == List<int>{ 20, 30 }));
+
+            std::println("{}", Run(free));
         }
     }
 }

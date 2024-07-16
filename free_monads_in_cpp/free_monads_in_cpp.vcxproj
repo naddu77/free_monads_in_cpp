@@ -140,6 +140,10 @@
     <ClCompile Include="Functor.ixx" />
     <ClCompile Include="List.ixx" />
     <ClCompile Include="Monad.ixx" />
+    <ClCompile Include="Util.ixx" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CustomFormatter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
