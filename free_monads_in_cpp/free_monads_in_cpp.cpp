@@ -54,31 +54,23 @@ struct Prog
 {
     std::variant<Read<Next>, Write<Next>> v;
 
-    template <typename Fun>
-    Prog<std::invoke_result_t<Fun, Next>> Fmap(Fun&& fun) const
+    template <typename Func>
+    Prog<std::invoke_result_t<Func, Next>> Fmap(Func&& func) const
     {
         return std::visit(Util::Overloaded{
-            [fun](Read<Next> const& read) {
-                 return MakeRead(Compose(fun, read.next));
+            [func](Read<Next> const& read) {
+                 return Prog<std::invoke_result_t<Func, Next>>{ 
+                     Read<std::invoke_result_t<decltype(Compose(func, read.next)), int>>{ Compose(func, read.next) } 
+                 };
             },
-            [fun](Write<Next> const& write) {
-                return MakeWrite(write.x, Compose(fun, write.next));
+            [func](Write<Next> const& write) {
+                return Prog<std::invoke_result_t<Func, Next>>{ 
+                    Write<std::invoke_result_t<decltype(Compose(func, write.next)), Unit>>{ write.x, Compose(func, write.next) }
+                };
             }
         }, v);
     }
 };
-
-template <typename F>
-Prog<std::invoke_result_t<F, int>> MakeRead(F next)
-{
-    return { Read<std::invoke_result_t<F, int>>{ next } };
-}
-
-template <typename F>
-Prog<std::invoke_result_t<F, Unit>> MakeWrite(int x, F next)
-{
-    return { Write<std::invoke_result_t<F, Unit>>{ x, next } };
-}
 
 template <typename Next, typename CharT>
 struct std::formatter<Prog<Next>, CharT>
@@ -154,13 +146,13 @@ std::basic_ostream<CharT>& operator<<(std::basic_ostream<CharT>& os, Program<A> 
 
 // readF :: Free (Prog Int)
 // readF = liftFree (Read Id)
-Program<int> ReadF{ Free::LiftFree(MakeRead(&Id<int>)) };
+Program<int> ReadF{ Free::LiftFree(Prog<std::invoke_result_t<decltype(&Id<int>), int>>{ Read<std::invoke_result_t<decltype(&Id<int>), int>>{ &Id<int> }}) };
 
 // writeF :: Int -> Free (Prog ())
 // writeF x = liftFree (Write x id)
 Program<Unit> WriteF(int x)
 {
-    return { Free::LiftFree(MakeWrite(x, &Id<Unit>)) };
+    return { Free::LiftFree(Prog<std::invoke_result_t<decltype(&Id<Unit>), Unit>>{ Write<std::invoke_result_t<decltype(&Id<Unit>), Unit>>{ x, &Id<Unit> }}) };
 }
 
 // Interpret :: Prog a -> List a
@@ -196,32 +188,14 @@ List<A> Run(Program<A> program)
     return Free::FoldFree<List>(i, program);
 }
 
+static_assert(Functor::Functorable<Prog>);
 static_assert(Functor::Functorable<Program>);
 static_assert(Functor::Functorable<List>);
 static_assert(not Functor::Functorable<std::vector>);
+static_assert(not Monad::Monadable<Prog>);
 static_assert(Monad::Monadable<Program>);
 static_assert(Monad::Monadable<List>);
 static_assert(not Monad::Monadable<std::vector>);
-
-template <typename A>
-struct NullFunctor
-{
-    template <std::invocable<A> Func>
-    NullFunctor<std::invoke_result_t<Func, A>> Fmap(Func&&) const
-    {
-        return {};
-    }
-};
-
-template <typename A>
-struct Test
-    : Free::Free<NullFunctor, A>
-{
-
-};
-
-static_assert(Functor::Functorable<NullFunctor>);
-static_assert(Monad::Monadable<Test>);
 
 int main()
 {

@@ -153,3 +153,31 @@ export namespace Free
 		}, free.v);
 	}
 }
+
+namespace Free
+{
+	namespace Test
+	{
+		template <typename A>
+		struct NullFunctor
+		{
+			template <std::invocable<A> Func>
+			NullFunctor<std::invoke_result_t<Func, A>> Fmap(Func&&) const
+			{
+				return {};
+			}
+		};
+	}
+
+	template <typename A>
+	struct NullMonad
+		: Free::Free<Test::NullFunctor, A>
+	{
+
+	};
+
+	static_assert(Functor::Functorable<Test::NullFunctor>, "NullFunctor should be a Functor.");
+	static_assert(not Monad::Monadable<Test::NullFunctor>, "NullFunctor should not be a Monad.");
+	static_assert(Functor::Functorable<NullMonad>, "NullMonad should be a Functor.");
+	static_assert(Monad::Monadable<NullMonad>, "NullMonad should be a Monad.");
+}
